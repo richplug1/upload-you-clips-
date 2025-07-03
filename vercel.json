@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "client/package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
+    },
+    {
+      "src": "server/package.json",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/server/index_integrated.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/client/dist/$1"
+    }
+  ],
+  "env": {
+    "VITE_GOOGLE_CLIENT_ID": "1077143105260-lfqpc6kvqdg1vsq3e92a5ce5l7kants9.apps.googleusercontent.com",
+    "GOOGLE_CLIENT_ID": "1077143105260-lfqpc6kvqdg1vsq3e92a5ce5l7kants9.apps.googleusercontent.com",
+    "GOOGLE_CLIENT_SECRET": "@google_client_secret"
+  }
+}

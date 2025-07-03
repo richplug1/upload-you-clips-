@@ -1,6 +1,8 @@
-import { useState, useRef } from 'react';
-import { Play, Download, Share2, Trash2, Clock, MessageSquare, Eye } from 'lucide-react';
+import { useState, useRef, memo, useCallback } from 'react';
+import { Play, Download, Share2, Trash2, Clock, MessageSquare, Eye, Pause } from 'lucide-react';
 import { VideoClip } from '../App';
+import { LazyVideo } from './OptimizedComponents';
+import { usePerformance } from '../utils/performance';
 
 interface ClipThumbnailProps {
   clip: VideoClip;
@@ -9,24 +11,27 @@ interface ClipThumbnailProps {
   onPlayClip: (clip: VideoClip) => void;
 }
 
-const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailProps) => {
+const ClipThumbnail = memo<ClipThumbnailProps>(({ clip, index, onDeleteClip, onPlayClip }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isVideoHovered, setIsVideoHovered] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [showControls, setShowControls] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { throttle } = usePerformance();
 
-  const handleDeleteClick = () => {
+  const handleDeleteClick = useCallback(() => {
     setShowDeleteConfirm(true);
-  };
+  }, []);
 
-  const confirmDelete = () => {
+  const confirmDelete = useCallback(() => {
     onDeleteClip(clip.id);
     setShowDeleteConfirm(false);
-  };
+  }, [onDeleteClip, clip.id]);
 
-  const cancelDelete = () => {
+  const cancelDelete = useCallback(() => {
     setShowDeleteConfirm(false);
-  };
+  }, []);
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -59,22 +64,59 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
     }
   };
 
-  const handleVideoHover = () => {
-    setIsVideoHovered(true);
-    if (videoRef.current) {
-      videoRef.current.play().catch(() => {
-        // Ignore autoplay errors
-      });
+  const handleVideoHover = useCallback(() => {
+    if (!isPlaying) {
+      setIsVideoHovered(true);
+      if (videoRef.current) {
+        videoRef.current.play().catch(() => {
+          // Ignore autoplay errors
+        });
+      }
     }
-  };
+  }, [isPlaying]);
 
-  const handleVideoLeave = () => {
-    setIsVideoHovered(false);
+  const handleVideoLeave = useCallback(() => {
+    if (!isPlaying) {
+      setIsVideoHovered(false);
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.currentTime = Math.min(2, clip.duration / 2);
+      }
+    }
+  }, [isPlaying, clip.duration]);
+
+  const handlePlayClick = useCallback(() => {
     if (videoRef.current) {
-      videoRef.current.pause();
+      if (isPlaying) {
+        videoRef.current.pause();
+        setIsPlaying(false);
+        setShowControls(false);
+      } else {
+        videoRef.current.currentTime = 0; // Start from beginning
+        videoRef.current.play();
+        setIsPlaying(true);
+        setShowControls(true);
+      }
+    }
+  }, [isPlaying]);
+
+  const handleVideoEnded = useCallback(() => {
+    setIsPlaying(false);
+    setShowControls(false);
+    if (videoRef.current) {
       videoRef.current.currentTime = Math.min(2, clip.duration / 2);
     }
-  };
+  }, [clip.duration]);
+
+  const handleVideoClick = useCallback(() => {
+    if (isPlaying && videoRef.current) {
+      if (videoRef.current.paused) {
+        videoRef.current.play();
+      } else {
+        videoRef.current.pause();
+      }
+    }
+  }, [isPlaying]);
 
   return (
     <div 
@@ -93,10 +135,13 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
         <video
           ref={videoRef}
           src={clip.downloadUrl}
-          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 cursor-pointer"
           preload="metadata"
-          muted
-          loop
+          muted={!isPlaying}
+          loop={false}
+          controls={showControls}
+          onClick={handleVideoClick}
+          onEnded={handleVideoEnded}
           onLoadedMetadata={(e) => {
             e.currentTarget.currentTime = Math.min(2, clip.duration / 2);
           }}
@@ -109,23 +154,35 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
         <div className={`absolute inset-0 transition-all duration-500 ${isVideoHovered ? 'bg-black/10' : 'bg-transparent'}`} />
 
         {/* Play Button with Pulse Effect */}
-        <div className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`}>
+        <div className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
+          isPlaying ? 'opacity-0 pointer-events-none' : 
+          (isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-75')
+        }`}>
           <button
-            onClick={() => onPlayClip(clip)}
+            onClick={handlePlayClick}
             className="relative w-16 h-16 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center hover:bg-white/30 hover:scale-110 transition-all duration-300 border border-white/30 group-hover:animate-pulse-ring"
           >
             <Play className="w-8 h-8 text-white ml-1" />
-            {!isVideoHovered && (
+            {!isVideoHovered && !isPlaying && (
               <div className="absolute inset-0 rounded-full bg-white/20 animate-pulse-ring"></div>
             )}
           </button>
         </div>
 
-        {/* Preview Indicator */}
-        {isVideoHovered && (
+        {/* Preview/Playing Indicator */}
+        {(isVideoHovered || isPlaying) && (
           <div className="absolute top-3 left-1/2 transform -translate-x-1/2 bg-blue-500/90 backdrop-blur-sm text-white px-3 py-1 rounded-full text-xs font-bold flex items-center space-x-1 animate-slide-up">
-            <Eye className="w-3 h-3" />
-            <span>Preview</span>
+            {isPlaying ? (
+              <>
+                <Play className="w-3 h-3" />
+                <span>Playing</span>
+              </>
+            ) : (
+              <>
+                <Eye className="w-3 h-3" />
+                <span>Preview</span>
+              </>
+            )}
           </div>
         )}
 
@@ -148,6 +205,21 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
           <span>{formatDuration(clip.duration)}</span>
         </div>
 
+        {/* Full Screen Button - only when playing */}
+        {isPlaying && (
+          <div className="absolute bottom-3 right-3">
+            <button
+              onClick={() => onPlayClip(clip)}
+              className="w-8 h-8 bg-black/50 backdrop-blur-sm text-white rounded-lg flex items-center justify-center hover:bg-black/70 transition-all duration-200"
+              title="Open in full screen"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Bottom Info */}
         <div className="absolute bottom-3 left-3 right-3">
           <div className="flex items-center justify-between">
@@ -162,10 +234,10 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
       </div>
 
       {/* Card Content */}
-      <div className="p-4">
+      <div className="p-5">
         {/* Clip Title */}
-        <div className="mb-3">
-          <h3 className="font-bold text-gray-900 text-sm truncate">
+        <div className="mb-4">
+          <h3 className="font-bold text-gray-900 text-base truncate">
             {clip.filename.replace(/\.[^/.]+$/, "")}
           </h3>
           <p className="text-xs text-gray-500">
@@ -174,24 +246,24 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
         </div>
 
         {/* Quick Actions */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3">
           <a
             href={clip.downloadUrl}
             download={clip.filename}
-            className="flex-1 flex items-center justify-center space-x-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-2 px-3 rounded-xl text-xs font-medium hover:from-green-600 hover:to-emerald-700 transition-all duration-300 transform hover:scale-105"
+            className="flex-1 flex items-center justify-center space-x-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-2.5 px-4 rounded-xl text-sm font-medium hover:from-green-600 hover:to-emerald-700 transition-all duration-300 transform hover:scale-105"
           >
-            <Download className="w-3 h-3" />
+            <Download className="w-4 h-4" />
             <span>Download</span>
           </a>
-          <button className="w-8 h-8 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl flex items-center justify-center hover:from-blue-600 hover:to-indigo-700 transition-all duration-300 transform hover:scale-105">
-            <Share2 className="w-3 h-3" />
+          <button className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl flex items-center justify-center hover:from-blue-600 hover:to-indigo-700 transition-all duration-300 transform hover:scale-105">
+            <Share2 className="w-4 h-4" />
           </button>
           <button
             onClick={handleDeleteClick}
-            className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl flex items-center justify-center hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
-            title="Delete clip"
+            className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl flex items-center justify-center hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
+            title="Remove clip"
           >
-            <Trash2 className="w-3 h-3 group-hover:scale-110 transition-transform duration-200" />
+            <Trash2 className="w-4 h-4 group-hover:scale-110 transition-transform duration-200" />
           </button>
         </div>
       </div>
@@ -204,10 +276,6 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
               <div className="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
                 <Trash2 className="w-8 h-8 text-red-600" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Clip?</h3>
-              <p className="text-gray-600 mb-6">
-                Are you sure you want to delete "{clip.filename.replace(/\.[^/.]+$/, "")}"? This action cannot be undone.
-              </p>
               <div className="flex items-center space-x-3">
                 <button
                   onClick={cancelDelete}
@@ -219,7 +287,7 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
                   onClick={confirmDelete}
                   className="flex-1 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 font-medium"
                 >
-                  Delete
+                  Remove
                 </button>
               </div>
             </div>
@@ -228,6 +296,8 @@ const ClipThumbnail = ({ clip, index, onDeleteClip, onPlayClip }: ClipThumbnailP
       )}
     </div>
   );
-};
+});
+
+ClipThumbnail.displayName = 'ClipThumbnail';
 
 export default ClipThumbnail;

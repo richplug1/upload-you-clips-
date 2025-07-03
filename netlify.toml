@@ -1,0 +1,21 @@
+# Netlify Deployment Configuration
+[build]
+  publish = "client/dist"
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://your-backend-url.herokuapp.com/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[context.production.environment]
+  VITE_API_BASE_URL = "https://your-backend-url.herokuapp.com"
+  VITE_GOOGLE_CLIENT_ID = "1077143105260-ruq2rhn2ue71eno57bu91jj73bl8jg3f.apps.googleusercontent.com"

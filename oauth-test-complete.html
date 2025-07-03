@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google OAuth Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { border-color: #28a745; background: #d4edda; }
+        .error { border-color: #dc3545; background: #f8d7da; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Google OAuth Test - Full Check</h1>
+        
+        <div class="test-section">
+            <h3>Configuration:</h3>
+            <p><strong>Client ID:</strong> 1077143105260-ruq2rhn2ue71eno57bu91jj73bl8jg3f.apps.googleusercontent.com</p>
+            <p><strong>Backend:</strong> http://localhost:5000</p>
+            <p><strong>Frontend:</strong> http://localhost:3000</p>
+        </div>
+
+        <div id="results" class="test-section">
+            <h3>🔧 Tests OAuth:</h3>
+            <button onclick="runFullTest()">Lancer Test Complet</button>
+            <div id="testResults">Cliquez pour lancer les tests</div>
+        </div>
+    </div>
+
+    <script>
+        async function runFullTest() {
+            const resultsDiv = document.getElementById('testResults');
+            resultsDiv.innerHTML = '<p>🔄 Tests en cours...</p>';
+            
+            let results = '';
+            
+            // Test 1: Backend health
+            try {
+                const healthResponse = await fetch('http://localhost:5000/api/health');
+                const healthData = await healthResponse.json();
+                if (healthResponse.ok) {
+                    results += '<p>✅ Backend health: OK</p>';
+                } else {
+                    results += '<p>❌ Backend health: FAILED</p>';
+                }
+            } catch (error) {
+                results += '<p>❌ Backend connexion: FAILED - ' + error.message + '</p>';
+            }
+            
+            // Test 2: OAuth URL generation
+            try {
+                const oauthResponse = await fetch('http://localhost:5000/api/oauth/google/url', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    mode: 'cors'
+                });
+                
+                const oauthData = await oauthResponse.json();
+                
+                if (oauthResponse.ok && oauthData.success) {
+                    results += '<p>✅ OAuth URL generation: OK</p>';
+                    results += '<p>📋 Client ID utilisé: ' + oauthData.authUrl.match(/client_id=([^&]+)/)[1] + '</p>';
+                    results += '<p><strong>URL OAuth:</strong></p>';
+                    results += '<div style="word-break: break-all; background: #f8f9fa; padding: 10px; border-radius: 3px; margin: 10px 0;">' + oauthData.authUrl + '</div>';
+                    results += '<p><button onclick="window.open(\'' + oauthData.authUrl + '\', \'_blank\')">🚀 Tester OAuth Flow</button></p>';
+                } else {
+                    results += '<p>❌ OAuth URL generation: FAILED - ' + (oauthData.error || 'Unknown error') + '</p>';
+                }
+            } catch (error) {
+                results += '<p>❌ OAuth endpoint: FAILED - ' + error.message + '</p>';
+            }
+            
+            // Test 3: CORS
+            try {
+                const corsResponse = await fetch('http://localhost:5000/api/oauth/google/url', {
+                    method: 'GET',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Origin': 'http://localhost:3000'
+                    },
+                    mode: 'cors'
+                });
+                
+                if (corsResponse.ok) {
+                    results += '<p>✅ CORS configuration: OK</p>';
+                } else {
+                    results += '<p>❌ CORS configuration: FAILED</p>';
+                }
+            } catch (error) {
+                results += '<p>❌ CORS test: FAILED - ' + error.message + '</p>';
+            }
+            
+            resultsDiv.innerHTML = results;
+        }
+    </script>
+</body>
+</html>

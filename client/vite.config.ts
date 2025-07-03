@@ -7,11 +7,11 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:9999',
+        target: 'http://localhost:5000',
         changeOrigin: true
       },
       '/clips': {
-        target: 'http://localhost:9999',
+        target: 'http://localhost:5000',
         changeOrigin: true
       }
     }

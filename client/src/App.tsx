@@ -1,51 +1,35 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useCallback, useMemo, Suspense } from 'react';
 import Header from './components/Header';
 import UploadSection from './components/UploadSection';
 import OptionsPanel from './components/OptionsPanel';
 import ClipsGrid from './components/ClipsGrid';
-import AdvancedMetrics from './components/AdvancedMetrics';
 import DashboardCard from './components/DashboardCard';
 import LoadingOverlay from './components/LoadingOverlay';
+import ErrorBoundary from './components/ErrorBoundary';
+import ErrorReporter from './components/ErrorReporter';
+import ErrorTester from './components/ErrorTester';
+import Footer from './components/Footer';
+import KeyboardShortcuts from './components/KeyboardShortcuts';
+import DebugComponent from './components/DebugComponent';
+import SimpleOAuthTest from './components/SimpleOAuthTest';
+import { LazyAdvancedMetrics } from './components/OptimizedComponents';
+import { Skeleton } from './components/OptimizedComponents';
 import { useToast } from './components/ToastNotification';
-import { Upload, Settings, Sparkles } from 'lucide-react';
-
-export interface ClipOptions {
-  clipDurations: number[];
-  aspectRatio: '16:9' | '9:16' | '1:1';
-  numberOfClips: number;
-  enableSubtitles: boolean;
-}
-
-export interface VideoClip {
-  id: string;
-  jobId: string;
-  filename: string;
-  path: string;
-  duration: number;
-  startTime: number;
-  aspectRatio: string;
-  hasSubtitles: boolean;
-  createdAt: string;
-  downloadUrl: string;
-}
-
-export interface Job {
-  id: string;
-  filename: string;
-  path: string;
-  duration: number;
-  status: 'uploaded' | 'processing' | 'completed' | 'error';
-  createdAt: string;
-  clips?: string[];
-}
+import { useErrorHandler } from './utils/errorHandler';
+import { usePerformance } from './utils/performance';
+import { useAuth } from './contexts/AuthContext';
+import { videoService, Job, ClipOptions, VideoClip } from './services/video';
+import { Upload, Settings, Sparkles, Clock } from 'lucide-react';
 
 interface AppProps {
   onBackToLanding?: () => void;
+  onLogout?: () => void;
 }
 
-function App({ onBackToLanding }: AppProps) {
+function App({ onBackToLanding, onLogout }: AppProps) {
   const [currentJob, setCurrentJob] = useState<Job | null>(null);
-  const [clips, setClips] = useState<VideoClip[]>([]);
+  const [clips, setClips] = useState<VideoClip[]>([]); // Active clips (< 30 days)
+  const [allClips, setAllClips] = useState<VideoClip[]>([]); // All clips including archived
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [showLearnMore, setShowLearnMore] = useState(false);
@@ -54,6 +38,60 @@ function App({ onBackToLanding }: AppProps) {
   const [clipsExpiryTime, setClipsExpiryTime] = useState<Date | null>(null); // Track when clips expire
   const [, forceUpdate] = useState(0); // Force re-render for expiry timer
   const { success, error, info, ToastContainer } = useToast();
+  const { captureUploadError, captureProcessingError, captureUserError } = useErrorHandler();
+  const { debounce, memoize } = usePerformance();
+  const { user, isAuthenticated, logout } = useAuth();
+
+  // Load user's clips on mount and when authentication changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadUserData();
+    } else {
+      // Clear data when not authenticated
+      setClips([]);
+      setAllClips([]);
+      setCurrentJob(null);
+    }
+  }, [isAuthenticated]);
+
+  const loadUserData = async () => {
+    try {
+      const [userClips, userJobs] = await Promise.all([
+        videoService.getUserClips(),
+        videoService.getUserJobs()
+      ]);
+      
+      setAllClips(userClips);
+      
+      // Filter active clips (not archived)
+      const activeClips = userClips.filter(clip => !clip.is_archived);
+      setClips(activeClips);
+      
+      // Set current job if there's a pending/processing job
+      const activeJob = userJobs.find(job => 
+        job.status === 'pending' || job.status === 'processing'
+      );
+      if (activeJob) {
+        setCurrentJob(activeJob);
+      }
+      
+      if (activeClips.length > 0) {
+        setHasGeneratedClips(true);
+        // Set expiry time based on oldest clip
+        const oldestClip = activeClips.reduce((oldest, clip) => 
+          new Date(clip.created_at) < new Date(oldest.created_at) ? clip : oldest
+        );
+        const expiryTime = new Date(oldestClip.created_at);
+        expiryTime.setDate(expiryTime.getDate() + 30);
+        setClipsExpiryTime(expiryTime);
+      }
+    } catch (err) {
+      console.error('Failed to load user data:', err);
+      if (err instanceof Error) {
+        error('Failed to load your data', err.message);
+      }
+    }
+  };
 
   // Check clips expiry every hour (since expiry is 30 days, no need to check frequently)
   useEffect(() => {
@@ -77,32 +115,49 @@ function App({ onBackToLanding }: AppProps) {
     checkClipsExpiry();
   }, [clipsExpiryTime]);
 
-  const formatDuration = (seconds: number) => {
+  const formatDuration = useCallback((seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  }, []);
 
-  const handleVideoUploaded = (job: Job) => {
-    setCurrentJob(job);
-    setClips([]);
-    success('Video uploaded successfully!', 'Your video is ready for processing');
-  };
+  const handleVideoUploaded = useCallback((job: Job) => {
+    try {
+      setCurrentJob(job);
+      // Don't clear existing clips when uploading a new video - keep them visible
+      success('Video uploaded successfully!', 'Your video is ready for processing');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown upload error';
+      captureUploadError(`Failed to handle video upload: ${errorMessage}`, { job, error: err });
+      error('Upload Error', 'Failed to process the uploaded video');
+    }
+  }, [success, error, captureUploadError]);
 
   const handleClipsGenerated = (newClips: VideoClip[]) => {
-    setClips(newClips);
-    setHasGeneratedClips(true); // Mark that clips have been generated
-    // Set expiry time to 30 days from now
-    const expiryTime = new Date();
-    expiryTime.setDate(expiryTime.getDate() + 30);
-    setClipsExpiryTime(expiryTime);
-    setIsLoading(false);
-    // Auto-clean the uploaded video to prepare for next upload
-    setCurrentJob(null);
-    success(
-      `${newClips.length} clips generated!`, 
-      'Upload panel is ready for your next video • Clips expire in 30 days'
-    );
+    try {
+      setClips(prevClips => [...prevClips, ...newClips]); // Add to existing clips instead of replacing
+      setAllClips(prevAll => [...prevAll, ...newClips]); // Add to permanent collection
+      setHasGeneratedClips(true); // Mark that clips have been generated
+      // Set expiry time to 30 days from now
+      const expiryTime = new Date();
+      expiryTime.setDate(expiryTime.getDate() + 30);
+      setClipsExpiryTime(expiryTime);
+      setIsLoading(false);
+      // Auto-clean the uploaded video to prepare for next upload
+      setCurrentJob(null);
+      success(
+        `${newClips.length} clips generated!`, 
+        'Upload panel is ready for your next video • All clips are kept for 30 days'
+      );
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown processing error';
+      captureProcessingError(`Failed to handle generated clips: ${errorMessage}`, { 
+        clipsCount: newClips.length, 
+        error: err 
+      });
+      error('Processing Error', 'Failed to save generated clips');
+      setIsLoading(false);
+    }
   };
 
   const handleGenerateClips = (options: ClipOptions) => {
@@ -111,9 +166,21 @@ function App({ onBackToLanding }: AppProps) {
     info('Processing started', 'Generating your clips with AI');
   };
 
-  const handleDeleteClip = (clipId: string) => {
-    setClips(clips.filter(clip => clip.id !== clipId));
-    info('Clip deleted', 'The clip has been removed from your collection');
+  const handleDeleteClip = async (clipId: string) => {
+    try {
+      // Delete from backend
+      await videoService.deleteClip(clipId);
+      
+      // Remove from local state
+      setClips(clips.filter(clip => clip.id !== clipId));
+      setAllClips(allClips.filter(clip => clip.id !== clipId));
+      
+      success('Clip deleted', 'The clip has been permanently removed');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown deletion error';
+      captureUserError(`Failed to delete clip: ${errorMessage}`, 'delete_clip', { clipId, error: err });
+      error('Deletion Error', 'Failed to delete the clip');
+    }
   };
 
   // Function to manually reset upload state
@@ -123,18 +190,39 @@ function App({ onBackToLanding }: AppProps) {
     info('Upload reset', 'Ready for a new video upload');
   };
 
-  // Function to check and handle clip expiry
+  // Function to check and handle clip expiry - Archive instead of delete
   const checkClipsExpiry = () => {
     if (clipsExpiryTime && new Date() >= clipsExpiryTime && clips.length > 0) {
+      // Archive the current clips instead of deleting them
+      const archivedClips = clips.map(clip => ({
+        ...clip,
+        isArchived: true,
+        archivedAt: new Date().toISOString()
+      }));
+      
+      // Update allClips with archived status
+      setAllClips(prevAll => 
+        prevAll.map(clip => 
+          clips.find(c => c.id === clip.id) 
+            ? { ...clip, isArchived: true, archivedAt: new Date().toISOString() }
+            : clip
+        )
+      );
+      
+      // Clear active clips but keep the navigation visible
       setClips([]);
-      setHasGeneratedClips(false);
       setClipsExpiryTime(null);
-      info('Clips expired', 'Generated clips have been automatically cleared after 30 days');
+      info('Clips archived', `${archivedClips.length} clips moved to archive after 30 days • Still accessible in history`);
     }
   };
 
-  // Function to get time remaining until expiry
-  const getTimeUntilExpiry = () => {
+  // Memoized total duration calculation
+  const totalDuration = useMemo(() => {
+    return clips.reduce((acc, clip) => acc + clip.duration, 0);
+  }, [clips]);
+
+  // Memoized time until expiry calculation
+  const timeUntilExpiry = useMemo(() => {
     if (!clipsExpiryTime) return null;
     const now = new Date();
     const timeLeft = clipsExpiryTime.getTime() - now.getTime();
@@ -151,23 +239,27 @@ function App({ onBackToLanding }: AppProps) {
     } else {
       return `${minutes}m`;
     }
-  };
+  }, [clipsExpiryTime]);
 
   // Demo function to show full grid (temporary)
   const generateDemoClips = () => {
     const demoClips: VideoClip[] = Array.from({ length: 12 }, (_, i) => ({
       id: `demo-${i}`,
-      jobId: 'demo-job',
-      filename: `Demo Clip ${i + 1}.mp4`,
-      path: '/demo/path',
+      job_id: 'demo-job',
+      user_id: 1,
+      filename: `Demo_Clip_${i + 1}.mp4`,
       duration: 30 + Math.random() * 60,
-      startTime: i * 30,
-      aspectRatio: ['16:9', '9:16', '1:1'][i % 3],
-      hasSubtitles: Math.random() > 0.5,
-      createdAt: new Date().toISOString(),
-      downloadUrl: `/demo/clip-${i}.mp4`
+      size: 1024 * 1024 * (5 + Math.random() * 10), // 5-15MB
+      thumbnail_url: `demo-thumbnail-${i}.jpg`,
+      metadata: JSON.stringify({ aspectRatio: ['16:9', '9:16', '1:1'][i % 3] }),
+      is_archived: false,
+      created_at: new Date().toISOString(),
+      downloadUrl: `/demo/clip-${i}.mp4`,
+      aspectRatio: ['16:9', '9:16', '1:1'][i % 3] as '16:9' | '9:16' | '1:1',
+      hasSubtitles: Math.random() > 0.5
     }));
-    setClips(demoClips);
+    setClips(prevClips => [...prevClips, ...demoClips]); // Add to existing clips instead of replacing
+    setAllClips(prevAll => [...prevAll, ...demoClips]); // Add to permanent collection
     setHasGeneratedClips(true); // Mark that clips have been generated
     // Set expiry time to 30 days from now for demo
     const expiryTime = new Date();
@@ -175,7 +267,7 @@ function App({ onBackToLanding }: AppProps) {
     setClipsExpiryTime(expiryTime);
     // Auto-clean upload state for demo
     setCurrentJob(null);
-    success(`${demoClips.length} demo clips generated!`, 'Upload panel is ready for new video • Clips expire in 30 days');
+    success(`${demoClips.length} demo clips generated!`, 'Upload panel is ready for new video • All clips kept for 30 days');
   };
 
   // Function to navigate to generated clips section
@@ -193,7 +285,7 @@ function App({ onBackToLanding }: AppProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      <Header onBackToLanding={onBackToLanding} />
+      <Header onBackToLanding={onBackToLanding} onLogout={onLogout} />
       
       {/* Background Pattern */}
       <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiM5ZmE4ZGEiIGZpbGwtb3BhY2l0eT0iMC4wMyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMTAiLz48L2c+PC9nPjwvc3ZnPg==')] opacity-40"></div>
@@ -264,7 +356,7 @@ function App({ onBackToLanding }: AppProps) {
             <div className={`mb-8 transition-all duration-1000 ${highlightClipsSection ? 'ring-4 ring-purple-400/50 ring-offset-4 ring-offset-transparent scale-[1.02]' : ''}`} id="generated-clips-section">
               <DashboardCard
                 title="Generated Clips"
-                description={`${clips.length} clips ready • Total duration: ${formatDuration(clips.reduce((acc, clip) => acc + clip.duration, 0))}`}
+                description={`${clips.length} clips ready • Total duration: ${formatDuration(totalDuration)}`}
                 icon={<Sparkles className="w-5 h-5 text-white" />}
                 gradient="from-purple-50 to-pink-100"
                 className="card-reveal hover-lift"
@@ -277,9 +369,9 @@ function App({ onBackToLanding }: AppProps) {
                       <span className="text-sm font-medium text-gray-700">
                         All clips generated successfully
                       </span>
-                      {clipsExpiryTime && getTimeUntilExpiry() && (
+                      {clipsExpiryTime && timeUntilExpiry && (
                         <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-full border border-orange-200">
-                          Expires in {getTimeUntilExpiry()}
+                          Expires in {timeUntilExpiry}
                         </span>
                       )}
                     </div>
@@ -306,10 +398,12 @@ function App({ onBackToLanding }: AppProps) {
 
           {/* Advanced Metrics - Always visible when clips exist */}
           {clips.length > 0 && (
-            <AdvancedMetrics
-              currentJob={currentJob}
-              clips={clips}
-            />
+            <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+              <LazyAdvancedMetrics
+                currentJob={currentJob}
+                clips={clips}
+              />
+            </Suspense>
           )}
         </div>
       </main>
@@ -456,6 +550,33 @@ function App({ onBackToLanding }: AppProps) {
       
       {/* Toast Notifications */}
       <ToastContainer />
+      
+      {/* Error System - Hidden but functional */}
+      {/* <ErrorReporter /> */}
+      {/* <ErrorTester /> */}
+
+      {/* Footer */}
+      <Footer />
+
+      {/* Keyboard Shortcuts */}
+      <KeyboardShortcuts
+        onUpload={() => {
+          // Could trigger file upload dialog
+          const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+          fileInput?.click();
+        }}
+        onGenerateClips={() => {
+          // Could trigger clip generation if video is available
+          if (currentJob) {
+            generateDemoClips();
+          }
+        }}
+        onSettings={() => {
+          // Could open settings modal
+        }}
+      />
+      <DebugComponent />
+      <SimpleOAuthTest />
     </div>
   );
 }

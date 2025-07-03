@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo, useCallback } from 'react';
 import { VideoClip } from '../App';
 import ClipThumbnail from './ClipThumbnail';
 import DashboardCard from './DashboardCard';
+import { VirtualList, DebouncedInput } from './OptimizedComponents';
+import { usePerformance } from '../utils/performance';
 import { Play, Download, Share2, Grid3x3, List, Search, Filter, SortAsc, SortDesc } from 'lucide-react';
 
 interface ClipsGridProps {
@@ -9,21 +11,30 @@ interface ClipsGridProps {
   onDeleteClip: (clipId: string) => void;
 }
 
-const ClipsGrid = ({ clips, onDeleteClip }: ClipsGridProps) => {
+const ClipsGrid = memo<ClipsGridProps>(({ clips, onDeleteClip }) => {
   const [selectedClip, setSelectedClip] = useState<VideoClip | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'duration' | 'name'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [filterAspectRatio, setFilterAspectRatio] = useState<string>('all');
+  const { throttle, memoize } = usePerformance();
 
-  const handlePlayClip = (clip: VideoClip) => {
+  const handlePlayClip = useCallback((clip: VideoClip) => {
     setSelectedClip(clip);
-  };
+  }, []);
 
-  const closeVideoModal = () => {
+  const closeVideoModal = useCallback(() => {
     setSelectedClip(null);
-  };
+  }, []);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
+  }, []);
+
+  const toggleSortOrder = useCallback(() => {
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+  }, []);
 
   const getTotalDuration = () => {
     return clips.reduce((acc, clip) => acc + clip.duration, 0);
@@ -64,10 +75,6 @@ const ClipsGrid = ({ clips, onDeleteClip }: ClipsGridProps) => {
 
   const uniqueAspectRatios = [...new Set(clips.map(clip => clip.aspectRatio))];
 
-  const toggleSortOrder = () => {
-    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-  };
-
   if (clips.length === 0) {
     return null;
   }
@@ -76,7 +83,6 @@ const ClipsGrid = ({ clips, onDeleteClip }: ClipsGridProps) => {
     <>
       <DashboardCard
         title="Generated Clips"
-        description={`${filteredAndSortedClips.length} of ${clips.length} clips shown • Total: ${formatDuration(getTotalDuration())}`}
         icon={<Play className="w-6 h-6 text-white" />}
         badge={filteredAndSortedClips.length}
         gradient="from-purple-50 to-pink-50"
@@ -89,11 +95,10 @@ const ClipsGrid = ({ clips, onDeleteClip }: ClipsGridProps) => {
             {/* Search Input */}
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Search clips..."
+              <DebouncedInput
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={handleSearchChange}
+                placeholder="Search clips..."
                 className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
               />
             </div>
@@ -200,7 +205,7 @@ const ClipsGrid = ({ clips, onDeleteClip }: ClipsGridProps) => {
             )}
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
             {filteredAndSortedClips.map((clip, index) => (
               <ClipThumbnail
                 key={clip.id}
@@ -322,6 +327,8 @@ const ClipsGrid = ({ clips, onDeleteClip }: ClipsGridProps) => {
       )}
     </>
   );
-};
+});
+
+ClipsGrid.displayName = 'ClipsGrid';
 
 export default ClipsGrid;
