@@ -1,4 +1,4 @@
-import { VideoClip, Job } from '../App';
+import { VideoClip, Job } from '../types';
 import DashboardCard from './DashboardCard';
 import { TrendingUp, Clock, Zap, BarChart3 } from 'lucide-react';
 
@@ -79,7 +79,7 @@ const DashboardStats = ({ currentJob, clips }: DashboardStatsProps) => {
               {Object.entries(aspectRatios).map(([ratio, count]) => (
                 <div key={ratio} className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">{ratio}</span>
-                  <span className="font-medium text-gray-900">{count}</span>
+                  <span className="font-medium text-gray-900">{count as number}</span>
                 </div>
               ))}
             </div>

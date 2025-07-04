@@ -7,6 +7,7 @@ const validation = require('../services/validation');
 const logger = require('../services/logger');
 const database = require('../models/database');
 const videoProcessor = require('../services/videoProcessor');
+const { checkVideoProcessingCredits, deductCredits } = require('../middleware/creditMiddleware');
 
 const router = express.Router();
 
@@ -122,21 +123,23 @@ router.post('/upload',
 
 // Process video into clips
 router.post('/process',
-  authService.optionalAuth.bind(authService),
+  authService.authenticateToken, // Require authentication for credit checking
   validation.validateVideoProcessing,
+  checkVideoProcessingCredits, // Check credits and subscription limits
   validation.logActivity('video_process', 'job'),
   validation.asyncHandler(async (req, res) => {
     try {
-      const { fileId, fileName, duration, customDuration, generateSubtitles } = req.body;
+      const { fileId, fileName, duration, customDuration, generateSubtitles, clipsCount = 3 } = req.body;
 
       if (!fileId && !fileName) {
         return res.status(400).json({ error: 'File ID or file name is required' });
       }
 
       const jobId = uuidv4();
-      const userId = req.user?.id || null;
+      const userId = req.user.userId;
       const inputFile = fileName || fileId;
       const inputPath = path.join(__dirname, '../uploads', inputFile);
+      const requiredCredits = req.requiredCredits; // Set by creditMiddleware
 
       // Check if file exists
       const fs = require('fs').promises;
@@ -144,6 +147,28 @@ router.post('/process',
         await fs.access(inputPath);
       } catch (error) {
         return res.status(404).json({ error: 'Video file not found' });
+      }
+
+      // Deduct credits before processing
+      try {
+        await database.deductUserCredits(userId, requiredCredits, {
+          video_id: jobId,
+          clips_generated: clipsCount,
+          video_duration: duration
+        });
+        
+        logger.info('Credits deducted for video processing', {
+          userId,
+          jobId,
+          credits: requiredCredits,
+          duration,
+          clipsCount
+        });
+      } catch (creditError) {
+        return res.status(403).json({ 
+          error: 'Failed to deduct credits',
+          message: creditError.message
+        });
       }
 
       // Create processing job
@@ -154,7 +179,9 @@ router.post('/process',
         settings: {
           duration,
           customDuration,
-          generateSubtitles
+          generateSubtitles,
+          clipsCount,
+          creditsDeducted: requiredCredits
         }
       });
 
@@ -162,12 +189,21 @@ router.post('/process',
       videoProcessor.createClips(jobId, userId, inputPath, {
         duration,
         customDuration,
-        generateSubtitles
+        generateSubtitles,
+        clipsCount
       }).catch(error => {
         logger.error('Video processing failed', { 
           error: error.message, 
           jobId, 
           userId 
+        });
+        
+        // If processing fails, consider refunding credits
+        // This would require additional logic to handle partial refunds
+        logger.warn('Video processing failed after credits deducted', {
+          jobId,
+          userId,
+          creditsDeducted: requiredCredits
         });
       });
 
@@ -176,13 +212,15 @@ router.post('/process',
       res.json({
         message: 'Video processing started',
         jobId,
-        status: 'processing'
+        status: 'processing',
+        creditsDeducted: requiredCredits,
+        estimatedClips: clipsCount
       });
 
     } catch (error) {
       logger.error('Process initiation error', { 
         error: error.message, 
-        userId: req.user?.id 
+        userId: req.user?.userId 
       });
       
       res.status(500).json({ error: 'Failed to start processing' });

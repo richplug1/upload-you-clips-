@@ -15,6 +15,7 @@ interface KeyboardShortcutsProps {
   onToggleHelp?: () => void;
   onSettings?: () => void;
   onLogout?: () => void;
+  onClose?: () => void;
 }
 
 export default function KeyboardShortcuts({

@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, File, CheckCircle, AlertCircle, Monitor, Clock, Sliders, Type, Sparkles, Play } from 'lucide-react';
-import { videoService, Job, ClipOptions, VideoClip } from '../services/video';
+import { videoService } from '../services/video';
+import { Job, ClipOptions, VideoClip } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useErrorHandler } from '../utils/errorHandler';
 import AIAssistant from './AIAssistant';
@@ -140,6 +141,12 @@ const UploadSection = ({ onVideoUploaded, currentJob, onGenerateClips, onClipsGe
     }
     
     const options: ClipOptions = {
+      clipLength: clipDurations[0] || 30,
+      numberOfClips,
+      enableSubtitles,
+      minScore: 0.5,
+      language: 'fr',
+      outputFormat: 'mp4',
       clipDurations,
       aspectRatio,
       includeSubtitles: enableSubtitles,
@@ -170,7 +177,7 @@ const UploadSection = ({ onVideoUploaded, currentJob, onGenerateClips, onClipsGe
       
       // Get the generated clips
       const clips = await videoService.getUserClips();
-      const jobClips = clips.filter(clip => clip.job_id === currentJob.id);
+      const jobClips = clips.filter(clip => (clip.job_id || clip.jobId) === currentJob.id);
       
       onClipsGenerated(jobClips);
     } catch (error) {

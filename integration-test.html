@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test d'Intégration Complète - Backend + OAuth + OpenAI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success { border-color: #28a745; background: #d4edda; }
+        .error { border-color: #dc3545; background: #f8d7da; }
+        .warning { border-color: #ffc107; background: #fff3cd; }
+        .info { border-color: #17a2b8; background: #d1ecf1; }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .google-btn { background: #db4437; }
+        .google-btn:hover { background: #c23321; }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test d'Intégration Complète</h1>
+        <p><strong>Backend + Frontend + OAuth Google + OpenAI</strong></p>
+        
+        <div id="systemStatus" class="test-section info">
+            <h3>📊 État du Système</h3>
+            <button onclick="checkSystemStatus()">Vérifier l'État Complet</button>
+            <div id="statusResults">Cliquez pour vérifier l'état du système</div>
+        </div>
+
+        <div id="authTest" class="test-section">
+            <h3>🔐 Test d'Authentification</h3>
+            
+            <div style="display: flex; gap: 20px;">
+                <!-- Inscription Email -->
+                <div style="flex: 1;">
+                    <h4>📝 Inscription par Email</h4>
+                    <div class="form-group">
+                        <input type="text" id="regName" placeholder="Nom complet" />
+                    </div>
+                    <div class="form-group">
+                        <input type="email" id="regEmail" placeholder="Email" />
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="regPassword" placeholder="Mot de passe" />
+                    </div>
+                    <button onclick="testEmailSignup()">S'inscrire par Email</button>
+                    <div id="signupResult" class="status"></div>
+                </div>
+
+                <!-- Connexion Email -->
+                <div style="flex: 1;">
+                    <h4>🔑 Connexion par Email</h4>
+                    <div class="form-group">
+                        <input type="email" id="loginEmail" placeholder="Email" />
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="loginPassword" placeholder="Mot de passe" />
+                    </div>
+                    <button onclick="testEmailLogin()">Se connecter par Email</button>
+                    <div id="loginResult" class="status"></div>
+                </div>
+            </div>
+
+            <!-- OAuth Google -->
+            <div style="margin-top: 20px;">
+                <h4>🟡 Connexion Google OAuth</h4>
+                <button class="google-btn" onclick="testGoogleOAuth()">Se connecter avec Google</button>
+                <div id="oauthResult" class="status"></div>
+            </div>
+        </div>
+
+        <div id="openaiTest" class="test-section">
+            <h3>🤖 Test OpenAI</h3>
+            <div class="form-group">
+                <input type="text" id="videoTitle" placeholder="Titre de vidéo pour test OpenAI" value="Ma super vidéo de voyage à Paris" />
+            </div>
+            <button onclick="testOpenAI()">Générer Description IA</button>
+            <div id="openaiResult" class="status"></div>
+        </div>
+
+        <div id="integrationTest" class="test-section">
+            <h3>🔗 Test d'Intégration Complète</h3>
+            <p>Test du workflow complet : Inscription → Connexion → Utilisation OpenAI</p>
+            <button onclick="runFullIntegrationTest()">Lancer Test Complet</button>
+            <div id="integrationResult" class="status"></div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = localStorage.getItem('authToken');
+        
+        // Vérification de l'état du système
+        async function checkSystemStatus() {
+            const statusDiv = document.getElementById('statusResults');
+            statusDiv.innerHTML = '🔄 Vérification en cours...';
+            
+            let results = '';
+            
+            try {
+                // Test Backend
+                const backendResponse = await fetch('http://localhost:5000/');
+                if (backendResponse.ok) {
+                    const data = await backendResponse.json();
+                    results += '✅ Backend: ACTIF<br>';
+                    results += `📋 Version: ${data.version}<br>`;
+                } else {
+                    results += '❌ Backend: ERREUR<br>';
+                }
+            } catch (e) {
+                results += '❌ Backend: INACCESSIBLE<br>';
+            }
+            
+            try {
+                // Test OAuth
+                const oauthResponse = await fetch('http://localhost:5000/api/oauth/google/url');
+                if (oauthResponse.ok) {
+                    results += '✅ Google OAuth: CONFIGURÉ<br>';
+                } else {
+                    results += '❌ Google OAuth: ERREUR<br>';
+                }
+            } catch (e) {
+                results += '❌ Google OAuth: INACCESSIBLE<br>';
+            }
+            
+            try {
+                // Test OpenAI
+                const openaiResponse = await fetch('http://localhost:5000/api/openai/status');
+                if (openaiResponse.ok) {
+                    const data = await openaiResponse.json();
+                    results += data.available ? '✅ OpenAI: DISPONIBLE<br>' : '⚠️ OpenAI: NON CONFIGURÉ<br>';
+                } else {
+                    results += '❌ OpenAI: ERREUR<br>';
+                }
+            } catch (e) {
+                results += '❌ OpenAI: INACCESSIBLE<br>';
+            }
+            
+            try {
+                // Test Frontend
+                const frontendResponse = await fetch('http://localhost:3000/');
+                if (frontendResponse.ok) {
+                    results += '✅ Frontend: ACTIF<br>';
+                } else {
+                    results += '❌ Frontend: ERREUR<br>';
+                }
+            } catch (e) {
+                results += '❌ Frontend: INACCESSIBLE<br>';
+            }
+            
+            statusDiv.innerHTML = results;
+            document.getElementById('systemStatus').className = 'test-section success';
+        }
+        
+        // Test inscription email
+        async function testEmailSignup() {
+            const name = document.getElementById('regName').value;
+            const email = document.getElementById('regEmail').value;
+            const password = document.getElementById('regPassword').value;
+            const resultDiv = document.getElementById('signupResult');
+            
+            if (!name || !email || !password) {
+                resultDiv.innerHTML = '❌ Veuillez remplir tous les champs';
+                resultDiv.className = 'status error';
+                return;
+            }
+            
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `✅ Inscription réussie! Utilisateur: ${data.user?.name}`;
+                    resultDiv.className = 'status success';
+                    if (data.token) {
+                        authToken = data.token;
+                        localStorage.setItem('authToken', authToken);
+                    }
+                } else {
+                    resultDiv.innerHTML = `❌ Erreur: ${data.error || data.message}`;
+                    resultDiv.className = 'status error';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `❌ Erreur de connexion: ${error.message}`;
+                resultDiv.className = 'status error';
+            }
+        }
+        
+        // Test connexion email
+        async function testEmailLogin() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const resultDiv = document.getElementById('loginResult');
+            
+            if (!email || !password) {
+                resultDiv.innerHTML = '❌ Veuillez remplir tous les champs';
+                resultDiv.className = 'status error';
+                return;
+            }
+            
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `✅ Connexion réussie! Bienvenue ${data.user?.name}`;
+                    resultDiv.className = 'status success';
+                    if (data.token) {
+                        authToken = data.token;
+                        localStorage.setItem('authToken', authToken);
+                    }
+                } else {
+                    resultDiv.innerHTML = `❌ Erreur: ${data.error || data.message}`;
+                    resultDiv.className = 'status error';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `❌ Erreur de connexion: ${error.message}`;
+                resultDiv.className = 'status error';
+            }
+        }
+        
+        // Test Google OAuth
+        async function testGoogleOAuth() {
+            const resultDiv = document.getElementById('oauthResult');
+            resultDiv.innerHTML = '🔄 Redirection vers Google...';
+            resultDiv.className = 'status info';
+            
+            try {
+                const response = await fetch('http://localhost:5000/api/oauth/google/url');
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = '🚀 Redirection vers Google OAuth...';
+                    setTimeout(() => {
+                        window.open(data.authUrl, '_blank');
+                    }, 1000);
+                } else {
+                    resultDiv.innerHTML = `❌ Erreur OAuth: ${data.error}`;
+                    resultDiv.className = 'status error';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `❌ Erreur OAuth: ${error.message}`;
+                resultDiv.className = 'status error';
+            }
+        }
+        
+        // Test OpenAI
+        async function testOpenAI() {
+            const title = document.getElementById('videoTitle').value;
+            const resultDiv = document.getElementById('openaiResult');
+            
+            if (!title) {
+                resultDiv.innerHTML = '❌ Veuillez entrer un titre';
+                resultDiv.className = 'status error';
+                return;
+            }
+            
+            if (!authToken) {
+                resultDiv.innerHTML = '⚠️ Veuillez vous connecter d\'abord';
+                resultDiv.className = 'status warning';
+                return;
+            }
+            
+            resultDiv.innerHTML = '🔄 Génération en cours...';
+            resultDiv.className = 'status info';
+            
+            try {
+                const response = await fetch('http://localhost:5000/api/openai/generate-description', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ videoTitle: title })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `✅ Description générée:<br><strong>${data.description}</strong>`;
+                    resultDiv.className = 'status success';
+                } else {
+                    resultDiv.innerHTML = `❌ Erreur OpenAI: ${data.error}`;
+                    resultDiv.className = 'status error';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `❌ Erreur OpenAI: ${error.message}`;
+                resultDiv.className = 'status error';
+            }
+        }
+        
+        // Test d'intégration complète
+        async function runFullIntegrationTest() {
+            const resultDiv = document.getElementById('integrationResult');
+            resultDiv.innerHTML = '🧪 Lancement du test d\'intégration complète...<br>';
+            resultDiv.className = 'status info';
+            
+            let results = '';
+            
+            // Test 1: Vérification du système
+            results += '1️⃣ Vérification du système...<br>';
+            try {
+                const backendCheck = await fetch('http://localhost:5000/');
+                results += backendCheck.ok ? '✅ Backend OK<br>' : '❌ Backend ERREUR<br>';
+            } catch (e) {
+                results += '❌ Backend INACCESSIBLE<br>';
+            }
+            
+            // Test 2: Test inscription automatique
+            results += '<br>2️⃣ Test inscription automatique...<br>';
+            const testEmail = `test${Date.now()}@example.com`;
+            try {
+                const signupResponse = await fetch('http://localhost:5000/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        name: 'Test User',
+                        email: testEmail,
+                        password: 'testpassword123'
+                    })
+                });
+                
+                if (signupResponse.ok) {
+                    const signupData = await signupResponse.json();
+                    results += '✅ Inscription automatique réussie<br>';
+                    authToken = signupData.token;
+                } else {
+                    results += '❌ Inscription automatique échouée<br>';
+                }
+            } catch (e) {
+                results += '❌ Erreur inscription automatique<br>';
+            }
+            
+            // Test 3: Test OpenAI avec authentification
+            results += '<br>3️⃣ Test OpenAI avec authentification...<br>';
+            if (authToken) {
+                try {
+                    const openaiResponse = await fetch('http://localhost:5000/api/openai/generate-description', {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({ videoTitle: 'Test Integration Video' })
+                    });
+                    
+                    if (openaiResponse.ok) {
+                        results += '✅ OpenAI avec authentification OK<br>';
+                    } else {
+                        results += '⚠️ OpenAI nécessite une clé API valide<br>';
+                    }
+                } catch (e) {
+                    results += '❌ Erreur OpenAI<br>';
+                }
+            }
+            
+            // Test 4: Test OAuth URL
+            results += '<br>4️⃣ Test OAuth Google...<br>';
+            try {
+                const oauthResponse = await fetch('http://localhost:5000/api/oauth/google/url');
+                if (oauthResponse.ok) {
+                    results += '✅ OAuth Google URL générée<br>';
+                } else {
+                    results += '❌ OAuth Google erreur<br>';
+                }
+            } catch (e) {
+                results += '❌ OAuth Google inaccessible<br>';
+            }
+            
+            results += '<br>🎉 <strong>Test d\'intégration terminé!</strong>';
+            resultDiv.innerHTML = results;
+            resultDiv.className = 'status success';
+        }
+        
+        // Vérification automatique au chargement
+        window.onload = function() {
+            checkSystemStatus();
+            if (authToken) {
+                document.getElementById('authTest').innerHTML += '<div class="status success">✅ Déjà authentifié!</div>';
+            }
+        };
+    </script>
+</body>
+</html>

@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs').promises;
 const { v4: uuidv4 } = require('uuid');
 const database = require('../models/database');
+const errorHandler = require('./errorHandler');
+const logger = require('./logger');
 
 class VideoProcessorService {
   constructor() {
@@ -16,7 +18,19 @@ class VideoProcessorService {
       await fs.mkdir(this.outputDir, { recursive: true });
       await fs.mkdir(this.thumbnailDir, { recursive: true });
     } catch (error) {
-      console.error('Error creating directories:', error);
+      throw errorHandler.createError(
+        errorHandler.errorTypes.FILE_SYSTEM,
+        `Failed to create video processing directories: ${error.message}`,
+        {
+          severity: errorHandler.severityLevels.HIGH,
+          context: {
+            outputDir: this.outputDir,
+            thumbnailDir: this.thumbnailDir,
+            originalError: error.message
+          },
+          userMessage: 'Erreur lors de l\'initialisation du système de traitement vidéo.'
+        }
+      );
     }
   }
 
@@ -25,7 +39,19 @@ class VideoProcessorService {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
         if (err) {
-          reject(err);
+          const videoError = errorHandler.createError(
+            errorHandler.errorTypes.VIDEO_PROCESSING,
+            `Failed to read video metadata: ${err.message}`,
+            {
+              severity: errorHandler.severityLevels.MEDIUM,
+              context: {
+                filePath,
+                ffprobeError: err.message
+              },
+              userMessage: 'Impossible de lire les métadonnées de la vidéo.'
+            }
+          );
+          reject(videoError);
         } else {
           const videoStream = metadata.streams.find(s => s.codec_type === 'video');
           const audioStream = metadata.streams.find(s => s.codec_type === 'audio');
@@ -65,7 +91,23 @@ class VideoProcessorService {
           size: '320x240'
         })
         .on('end', () => resolve(outputPath))
-        .on('error', reject);
+        .on('error', (err) => {
+          const thumbnailError = errorHandler.createError(
+            errorHandler.errorTypes.VIDEO_PROCESSING,
+            `Thumbnail generation failed: ${err.message}`,
+            {
+              severity: errorHandler.severityLevels.MEDIUM,
+              context: {
+                inputPath,
+                outputPath,
+                timeOffset,
+                ffmpegError: err.message
+              },
+              userMessage: 'Échec de la génération de la miniature.'
+            }
+          );
+          reject(thumbnailError);
+        });
     });
   }
 
@@ -151,12 +193,37 @@ class VideoProcessorService {
       return clips;
       
     } catch (error) {
-      console.error('Error creating clips:', error);
+      logger.error('Error creating clips', { 
+        error: error.message, 
+        jobId, 
+        userId,
+        inputPath
+      });
+      
       await database.updateJob(jobId, { 
         status: 'failed', 
         error_message: error.message 
       });
-      throw error;
+      
+      if (error.isAppError) {
+        throw error;
+      }
+      
+      throw errorHandler.createError(
+        errorHandler.errorTypes.VIDEO_PROCESSING,
+        `Video clip creation failed: ${error.message}`,
+        {
+          severity: errorHandler.severityLevels.HIGH,
+          context: {
+            jobId,
+            userId,
+            inputPath,
+            settings,
+            originalError: error.message
+          },
+          userMessage: 'Échec de la création des clips vidéo. Veuillez réessayer.'
+        }
+      );
     }
   }
 
@@ -186,10 +253,33 @@ class VideoProcessorService {
         .output(outputPath)
         .on('progress', (progress) => {
           // You can emit progress events here
-          console.log(`Processing: ${progress.percent}% done`);
+          logger.debug(`Processing clip: ${progress.percent}% done`, {
+            inputPath,
+            outputPath,
+            startTime,
+            duration
+          });
         })
         .on('end', () => resolve(outputPath))
-        .on('error', reject)
+        .on('error', (err) => {
+          const clipError = errorHandler.createError(
+            errorHandler.errorTypes.VIDEO_PROCESSING,
+            `Video clip creation failed: ${err.message}`,
+            {
+              severity: errorHandler.severityLevels.HIGH,
+              context: {
+                inputPath,
+                outputPath,
+                startTime,
+                duration,
+                addSubtitles,
+                ffmpegError: err.message
+              },
+              userMessage: 'Échec de la création du clip vidéo.'
+            }
+          );
+          reject(clipError);
+        })
         .run();
     });
   }

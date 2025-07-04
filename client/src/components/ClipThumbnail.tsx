@@ -1,6 +1,6 @@
 import { useState, useRef, memo, useCallback } from 'react';
 import { Play, Download, Share2, Trash2, Clock, MessageSquare, Eye, Pause } from 'lucide-react';
-import { VideoClip } from '../App';
+import { VideoClip } from '../types';
 import { LazyVideo } from './OptimizedComponents';
 import { usePerformance } from '../utils/performance';
 

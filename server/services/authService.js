@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const database = require('../models/database');
+const errorHandler = require('./errorHandler');
 
 class AuthService {
   constructor() {
@@ -28,74 +29,154 @@ class AuthService {
     try {
       return jwt.verify(token, this.jwtSecret);
     } catch (error) {
-      throw new Error('Invalid token');
+      throw errorHandler.createError(
+        errorHandler.errorTypes.AUTHENTICATION,
+        'Invalid or expired token',
+        {
+          severity: errorHandler.severityLevels.MEDIUM,
+          context: { tokenVerification: true },
+          userMessage: 'Votre session a expiré. Veuillez vous reconnecter.'
+        }
+      );
     }
   }
 
   // Register new user with email/password
   async registerUser(userData) {
-    const { email, password, name } = userData;
+    try {
+      const { email, password, name } = userData;
 
-    // Check if user already exists
-    const existingUser = await database.getUserByEmail(email);
-    if (existingUser) {
-      throw new Error('User already exists with this email');
+      // Check if user already exists
+      const existingUser = await database.getUserByEmail(email);
+      if (existingUser) {
+        throw errorHandler.createError(
+          errorHandler.errorTypes.VALIDATION,
+          'User already exists with this email',
+          {
+            severity: errorHandler.severityLevels.LOW,
+            context: { email, registration: true },
+            userMessage: 'Un utilisateur avec cette adresse email existe déjà.'
+          }
+        );
+      }
+
+      // Create new user
+      const user = await database.createUser({
+        email,
+        password,
+        name,
+        googleId: null,
+        avatarUrl: null
+      });
+
+      // Generate token
+      const token = this.generateToken(user);
+
+      // Store session
+      await this.createSession(user.id, token, userData.deviceInfo, userData.ipAddress);
+
+      return {
+        user: this.sanitizeUser(user),
+        token
+      };
+    } catch (error) {
+      if (error.isAppError) {
+        throw error;
+      }
+      
+      throw errorHandler.createError(
+        errorHandler.errorTypes.AUTHENTICATION,
+        `User registration failed: ${error.message}`,
+        {
+          severity: errorHandler.severityLevels.HIGH,
+          context: { 
+            email: userData.email,
+            registration: true,
+            originalError: error.message
+          },
+          userMessage: 'Échec de la création du compte. Veuillez réessayer.'
+        }
+      );
     }
-
-    // Create new user
-    const user = await database.createUser({
-      email,
-      password,
-      name,
-      googleId: null,
-      avatarUrl: null
-    });
-
-    // Generate token
-    const token = this.generateToken(user);
-
-    // Store session
-    await this.createSession(user.id, token, userData.deviceInfo, userData.ipAddress);
-
-    return {
-      user: this.sanitizeUser(user),
-      token
-    };
   }
 
   // Login user with email/password
   async loginUser(credentials) {
-    const { email, password, deviceInfo, ipAddress } = credentials;
+    try {
+      const { email, password, deviceInfo, ipAddress } = credentials;
 
-    // Get user by email
-    const user = await database.getUserByEmail(email);
-    if (!user) {
-      throw new Error('Invalid credentials');
+      // Get user by email
+      const user = await database.getUserByEmail(email);
+      if (!user) {
+        throw errorHandler.createError(
+          errorHandler.errorTypes.AUTHENTICATION,
+          'Invalid credentials',
+          {
+            severity: errorHandler.severityLevels.LOW,
+            context: { email, login: true },
+            userMessage: 'Identifiants invalides.'
+          }
+        );
+      }
+
+      // Check password
+      if (!user.password_hash) {
+        throw errorHandler.createError(
+          errorHandler.errorTypes.AUTHENTICATION,
+          'Please login with Google or reset your password',
+          {
+            severity: errorHandler.severityLevels.LOW,
+            context: { email, googleAccount: true },
+            userMessage: 'Veuillez vous connecter avec Google ou réinitialiser votre mot de passe.'
+          }
+        );
+      }
+
+      const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      if (!isValidPassword) {
+        throw errorHandler.createError(
+          errorHandler.errorTypes.AUTHENTICATION,
+          'Invalid credentials',
+          {
+            severity: errorHandler.severityLevels.LOW,
+            context: { email, invalidPassword: true },
+            userMessage: 'Identifiants invalides.'
+          }
+        );
+      }
+
+      // Update last login
+      await database.updateUserLastLogin(user.id);
+
+      // Generate token
+      const token = this.generateToken(user);
+
+      // Store session
+      await this.createSession(user.id, token, deviceInfo, ipAddress);
+
+      return {
+        user: this.sanitizeUser(user),
+        token
+      };
+    } catch (error) {
+      if (error.isAppError) {
+        throw error;
+      }
+      
+      throw errorHandler.createError(
+        errorHandler.errorTypes.AUTHENTICATION,
+        `Login failed: ${error.message}`,
+        {
+          severity: errorHandler.severityLevels.HIGH,
+          context: { 
+            email: credentials.email,
+            login: true,
+            originalError: error.message
+          },
+          userMessage: 'Échec de la connexion. Veuillez réessayer.'
+        }
+      );
     }
-
-    // Check password
-    if (!user.password_hash) {
-      throw new Error('Please login with Google or reset your password');
-    }
-
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-    if (!isValidPassword) {
-      throw new Error('Invalid credentials');
-    }
-
-    // Update last login
-    await database.updateUserLastLogin(user.id);
-
-    // Generate token
-    const token = this.generateToken(user);
-
-    // Store session
-    await this.createSession(user.id, token, deviceInfo, ipAddress);
-
-    return {
-      user: this.sanitizeUser(user),
-      token
-    };
   }
 
   // Google OAuth login/register
@@ -163,7 +244,15 @@ class AuthService {
       const user = await database.getUserById(decoded.userId);
       
       if (!user) {
-        throw new Error('User not found');
+        throw errorHandler.createError(
+          errorHandler.errorTypes.AUTHENTICATION,
+          'User not found',
+          {
+            severity: errorHandler.severityLevels.MEDIUM,
+            context: { sessionValidation: true, userId: decoded.userId },
+            userMessage: 'Session invalide. Veuillez vous reconnecter.'
+          }
+        );
       }
 
       return {
@@ -171,7 +260,19 @@ class AuthService {
         decoded
       };
     } catch (error) {
-      throw new Error('Invalid session');
+      if (error.isAppError) {
+        throw error;
+      }
+      
+      throw errorHandler.createError(
+        errorHandler.errorTypes.AUTHENTICATION,
+        'Invalid session',
+        {
+          severity: errorHandler.severityLevels.MEDIUM,
+          context: { sessionValidation: true, originalError: error.message },
+          userMessage: 'Session invalide. Veuillez vous reconnecter.'
+        }
+      );
     }
   }
 

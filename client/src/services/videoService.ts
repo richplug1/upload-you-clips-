@@ -1,4 +1,5 @@
 import { authService } from './authService';
+import { subscriptionService } from './subscription';
 
 interface VideoFile {
   fileId: string;
@@ -32,6 +33,7 @@ interface ProcessingSettings {
   duration?: number;
   customDuration?: number;
   generateSubtitles?: boolean;
+  clipsCount?: number;
 }
 
 interface Job {
@@ -94,12 +96,52 @@ class VideoService {
     return response.json();
   }
 
-  // Process video into clips
+  // Process video into clips with credit checking
   async processVideo(
     fileId: string,
     fileName: string,
     settings: ProcessingSettings
-  ): Promise<{ jobId: string; status: string; message: string }> {
+  ): Promise<{ 
+    jobId: string; 
+    status: string; 
+    message: string; 
+    creditsDeducted?: number;
+    estimatedClips?: number;
+  }> {
+    // Check if user is authenticated
+    if (!authService.isAuthenticated()) {
+      throw new Error('Authentication required to process videos');
+    }
+
+    // Calculate and check credits before processing
+    if (settings.duration && settings.clipsCount) {
+      try {
+        // Get cost estimate
+        const costEstimate = await subscriptionService.calculateProcessingCost(
+          settings.duration, 
+          settings.clipsCount
+        );
+
+        // Check if user can process this video
+        const { subscription } = await subscriptionService.getSubscriptionStatus();
+        const canProcess = subscriptionService.canProcessVideo(
+          subscription, 
+          settings.duration, 
+          settings.clipsCount
+        );
+
+        if (!canProcess.canProcess) {
+          throw new Error(canProcess.reason + (canProcess.suggestion ? ` ${canProcess.suggestion}` : ''));
+        }
+
+        // Show cost to user (this could be done in the UI before calling this method)
+        console.log('Processing will cost:', costEstimate.cost_breakdown.total_credits, 'credits');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        throw new Error(`Credit check failed: ${errorMessage}`);
+      }
+    }
+
     const response = await fetch(`${this.baseUrl}/process`, {
       method: 'POST',
       headers: {
@@ -119,6 +161,44 @@ class VideoService {
     }
 
     return response.json();
+  }
+
+  // Check processing cost before actual processing
+  async checkProcessingCost(duration: number, clipsCount: number): Promise<{
+    canProcess: boolean;
+    cost: number;
+    userCredits: number;
+    reason?: string;
+    suggestion?: string;
+  }> {
+    try {
+      // Get cost estimate
+      const costEstimate = await subscriptionService.calculateProcessingCost(duration, clipsCount);
+      
+      // Get user status
+      const { subscription, credits } = await subscriptionService.getSubscriptionStatus();
+      
+      // Check if user can process this video
+      const canProcess = subscriptionService.canProcessVideo(subscription, duration, clipsCount);
+
+      return {
+        canProcess: canProcess.canProcess && credits.remaining_credits >= costEstimate.cost_breakdown.total_credits,
+        cost: costEstimate.cost_breakdown.total_credits,
+        userCredits: credits.remaining_credits,
+        reason: !canProcess.canProcess ? canProcess.reason : 
+                credits.remaining_credits < costEstimate.cost_breakdown.total_credits ? 
+                'Insufficient credits' : undefined,
+        suggestion: canProcess.suggestion
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        canProcess: false,
+        cost: 0,
+        userCredits: 0,
+        reason: `Failed to check processing cost: ${errorMessage}`
+      };
+    }
   }
 
   // Get job status

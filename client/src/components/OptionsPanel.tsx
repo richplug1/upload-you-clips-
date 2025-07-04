@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Job, ClipOptions, VideoClip } from '../App';
+import { Job, ClipOptions, VideoClip } from '../types';
 import { Play, Settings, Sliders, Monitor, Clock, Type, Sparkles } from 'lucide-react';
 
 interface OptionsPanelProps {
@@ -26,10 +26,16 @@ const OptionsPanel = ({ job, onGenerateClips, onClipsGenerated, setIsLoading, se
 
   const handleGenerateClips = async () => {
     const options: ClipOptions = {
-      clipDurations,
-      aspectRatio,
+      clipLength: clipDurations[0] || 30,
       numberOfClips,
       enableSubtitles,
+      minScore: 0,
+      language: 'auto',
+      outputFormat: 'mp4',
+      clipDurations,
+      aspectRatio,
+      includeSubtitles: enableSubtitles,
+      maxClips: numberOfClips,
     };
 
     onGenerateClips(options);
@@ -49,13 +55,17 @@ const OptionsPanel = ({ job, onGenerateClips, onClipsGenerated, setIsLoading, se
       const mockClips: VideoClip[] = Array.from({ length: numberOfClips }, (_, index) => ({
         id: `clip-${Date.now()}-${index}`,
         jobId: job.id,
+        title: `Clip ${index + 1}`,
+        description: `Generated clip ${index + 1} from ${job.filename}`,
         filename: `${job.filename.replace(/\.[^/.]+$/, "")}_clip_${index + 1}.mp4`,
         path: `/clips/clip-${Date.now()}-${index}.mp4`,
+        thumbnail: `thumbnail-${Date.now()}-${index}.jpg`,
         duration: clipDurations[index % clipDurations.length],
         startTime: index * 30,
         aspectRatio,
         hasSubtitles: enableSubtitles,
         createdAt: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         downloadUrl: `http://localhost:5000/clips/clip-${Date.now()}-${index}.mp4`,
       }));
 

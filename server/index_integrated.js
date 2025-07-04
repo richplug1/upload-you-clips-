@@ -12,12 +12,21 @@ const database = require('./models/database');
 const logger = require('./services/logger');
 const validation = require('./services/validation');
 const fileManager = require('./services/fileManager');
+const errorHandler = require('./services/errorHandler');
+
+// Import middleware
+const { setupErrorHandling, asyncErrorHandler } = require('./middleware/errorMiddleware');
 
 // Import routes
 const authRoutes = require('./routes/auth');
 const videoRoutes = require('./routes/videos');
 const clipRoutes = require('./routes/clips');
 const adminRoutes = require('./routes/admin');
+const oauthRoutes = require('./routes/oauth');
+const openaiRoutes = require('./routes/openai');
+const subscriptionRoutes = require('./routes/subscription');
+const errorMonitoringRoutes = require('./routes/errorMonitoring');
+const systemHealthRoutes = require('./routes/systemHealth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -52,15 +61,19 @@ app.use('/api/auth', authRoutes);
 app.use('/api/videos', videoRoutes);
 app.use('/api/clips', clipRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/oauth', require('./routes/oauth'));
+app.use('/api/oauth', oauthRoutes);
+app.use('/api/openai', openaiRoutes);
+app.use('/api/subscription', subscriptionRoutes);
+app.use('/api/admin/errors', errorMonitoringRoutes);
+app.use('/api/system', systemHealthRoutes);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/clips', express.static(path.join(__dirname, 'clips')));
 app.use('/thumbnails', express.static(path.join(__dirname, 'thumbnails')));
 
-// Health check endpoint
-app.get('/api/health', async (req, res) => {
+// Health check endpoint (enhanced with error handling)
+app.get('/api/health', asyncErrorHandler(async (req, res) => {
   try {
     const health = await fileManager.systemHealthCheck();
     res.json({ 
@@ -69,14 +82,18 @@ app.get('/api/health', async (req, res) => {
       ...health
     });
   } catch (error) {
-    logger.error('Health check failed', { error: error.message });
-    res.status(500).json({ 
-      status: 'error', 
-      timestamp: new Date().toISOString(),
-      error: 'Health check failed'
-    });
+    const healthError = errorHandler.createError(
+      errorHandler.errorTypes.INTERNAL,
+      `Health check failed: ${error.message}`,
+      {
+        severity: errorHandler.severityLevels.HIGH,
+        context: { healthCheck: true },
+        retryable: true
+      }
+    );
+    throw healthError;
   }
-});
+}));
 
 // Root endpoint - Welcome message
 app.get('/', (req, res) => {
@@ -104,30 +121,49 @@ app.get('/api', (req, res) => {
   });
 });
 
-// Error reporting endpoint
-app.post('/api/errors', validation.asyncHandler(async (req, res) => {
+// Error reporting endpoint (improved with new error handler)
+app.post('/api/errors', asyncErrorHandler(async (req, res) => {
   try {
     const { message, stack, url, userAgent, timestamp, userId, metadata } = req.body;
     
-    await logger.logError({
+    const clientError = errorHandler.createError(
+      errorHandler.errorTypes.API,
+      `Client Error: ${message}`,
+      {
+        severity: errorHandler.severityLevels.MEDIUM,
+        context: {
+          clientSide: true,
+          url,
+          userAgent,
+          timestamp,
+          metadata
+        },
+        userMessage: 'Une erreur côté client a été signalée'
+      }
+    );
+
+    const result = await errorHandler.handleError(clientError, req, {
       userId: userId || null,
-      errorType: 'client_error',
-      errorMessage: message,
-      stackTrace: stack,
-      url,
-      userAgent,
-      ipAddress: req.ip,
-      metadata: { timestamp, ...metadata }
+      clientStack: stack
     });
     
-    res.json({ message: 'Error reported successfully' });
+    res.json({ 
+      message: 'Error reported successfully',
+      errorId: result.id
+    });
   } catch (error) {
-    logger.error('Error reporting failed', { error: error.message });
-    res.status(500).json({ error: 'Failed to report error' });
+    throw errorHandler.createError(
+      errorHandler.errorTypes.API,
+      `Failed to report client error: ${error.message}`,
+      {
+        severity: errorHandler.severityLevels.MEDIUM,
+        context: { clientReporting: true }
+      }
+    );
   }
 }));
 
-// API documentation endpoint (basic)
+// API documentation endpoint (enhanced with error monitoring)
 app.get('/api/docs', (req, res) => {
   res.json({
     version: '1.0.0',
@@ -159,20 +195,31 @@ app.get('/api/docs', (req, res) => {
         'GET /api/admin/stats': 'Get system statistics',
         'GET /api/admin/users': 'Get users list',
         'GET /api/admin/jobs': 'Get jobs queue',
-        'GET /api/admin/errors': 'Get error logs',
         'POST /api/admin/cleanup': 'Force system cleanup'
+      },
+      errorMonitoring: {
+        'GET /api/admin/errors/stats': 'Get error statistics',
+        'GET /api/admin/errors/logs': 'Get error logs',
+        'GET /api/admin/errors/log/:id': 'Get specific error log',
+        'POST /api/admin/errors/test': 'Generate test error',
+        'DELETE /api/admin/errors/cleanup': 'Cleanup old error logs',
+        'GET /api/admin/errors/export': 'Export error logs',
+        'GET /api/admin/errors/health': 'Error health status'
+      },
+      subscription: {
+        'GET /api/subscription/plans': 'Get subscription plans',
+        'GET /api/subscription/status': 'Get user subscription status',
+        'POST /api/subscription/calculate-cost': 'Calculate processing cost',
+        'POST /api/subscription/upgrade': 'Upgrade subscription',
+        'POST /api/subscription/buy-credits': 'Buy additional credits',
+        'GET /api/subscription/history': 'Get credit usage history'
       }
     }
   });
 });
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
-
-// Global error handler
-app.use(logger.errorMiddleware);
+// Setup error handling middleware (must be after all routes)
+setupErrorHandling(app);
 
 // Graceful shutdown handler
 process.on('SIGTERM', async () => {
@@ -199,26 +246,6 @@ process.on('SIGINT', async () => {
   }
   
   process.exit(0);
-});
-
-// Unhandled promise rejection handler
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Promise Rejection', { 
-    reason: reason.toString(),
-    stack: reason.stack,
-    promise: promise.toString()
-  });
-});
-
-// Uncaught exception handler
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception', { 
-    error: error.message,
-    stack: error.stack
-  });
-  
-  // Exit the process after logging
-  process.exit(1);
 });
 
 // Start server

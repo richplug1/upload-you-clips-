@@ -8,36 +8,7 @@ import DashboardCard from './components/DashboardCard';
 import LoadingOverlay from './components/LoadingOverlay';
 import { useToast } from './components/ToastNotification';
 import { Upload, Settings, Sparkles } from 'lucide-react';
-
-export interface ClipOptions {
-  clipDurations: number[];
-  aspectRatio: '16:9' | '9:16' | '1:1';
-  numberOfClips: number;
-  enableSubtitles: boolean;
-}
-
-export interface VideoClip {
-  id: string;
-  jobId: string;
-  filename: string;
-  path: string;
-  duration: number;
-  startTime: number;
-  aspectRatio: string;
-  hasSubtitles: boolean;
-  createdAt: string;
-  downloadUrl: string;
-}
-
-export interface Job {
-  id: string;
-  filename: string;
-  path: string;
-  duration: number;
-  status: 'uploaded' | 'processing' | 'completed' | 'error';
-  createdAt: string;
-  clips?: string[];
-}
+import { VideoClip, Job, ClipOptions } from './types';
 
 function App() {
   const [currentJob, setCurrentJob] = useState<Job | null>(null);
@@ -190,10 +161,7 @@ function App() {
             
             {/* Advanced Metrics - Full width */}
             <div className="mt-8">
-              <AdvancedMetrics
-                currentJob={currentJob}
-                clips={clips}
-              />
+              <AdvancedMetrics />
             </div>
           </div>
         )}

@@ -15,6 +15,11 @@
 - **Frontend:** http://localhost:3000 ✅ ACTIF
 - **API Health:** http://localhost:5000/api/health ✅ OK
 
+### 🚀 Scripts de Gestion
+- **Démarrer:** `./start-servers.sh`
+- **Arrêter:** `./stop-servers.sh`
+- **Status:** `./check-status.sh`
+
 ## ✅ Tests Effectués
 
 ### 1. Variables d'Environnement

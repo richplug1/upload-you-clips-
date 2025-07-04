@@ -283,8 +283,11 @@ class ErrorHandler {
 
 // Singleton instance
 export const errorHandler = new ErrorHandler({
-  enableReporting: false, // Set to true in production
-  reportEndpoint: '/api/errors'
+  enableReporting: true, // Activé pour envoyer les erreurs au backend
+  reportEndpoint: '/api/errors',
+  enableLogging: true,
+  enableUserNotification: false,
+  enableRetry: true
 });
 
 // React Hook for error handling

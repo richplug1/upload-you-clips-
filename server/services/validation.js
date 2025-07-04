@@ -3,6 +3,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const logger = require('./logger');
 const database = require('../models/database');
+const errorHandler = require('./errorHandler');
 
 class ValidationService {
   constructor() {
@@ -99,9 +100,24 @@ class ValidationService {
         userId: req.user ? req.user.id : null
       });
       
+      const validationError = errorHandler.createError(
+        errorHandler.errorTypes.VALIDATION,
+        'Validation failed',
+        {
+          severity: errorHandler.severityLevels.LOW,
+          context: {
+            validationErrors: errors.array(),
+            path: req.path,
+            method: req.method
+          },
+          userMessage: 'Données invalides. Veuillez vérifier votre saisie.'
+        }
+      );
+      
       return res.status(400).json({
         error: 'Validation failed',
-        details: errors.array()
+        details: errors.array(),
+        message: validationError.userMessage
       });
     }
     next();

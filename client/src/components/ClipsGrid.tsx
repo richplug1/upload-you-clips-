@@ -1,5 +1,5 @@
 import { useState, useMemo, memo, useCallback } from 'react';
-import { VideoClip } from '../App';
+import { VideoClip } from '../types';
 import ClipThumbnail from './ClipThumbnail';
 import DashboardCard from './DashboardCard';
 import { VirtualList, DebouncedInput } from './OptimizedComponents';

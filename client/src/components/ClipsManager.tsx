@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { VideoClip } from '../App';
+import { VideoClip } from '../types';
 import { Play, Download, Trash2, Edit3, MessageSquare, Share2, Clock } from 'lucide-react';
 import axios from 'axios';
 

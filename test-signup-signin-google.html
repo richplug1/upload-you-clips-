@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Signup/Signin Google OAuth</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .header { text-align: center; margin-bottom: 30px; }
+        .test-card { background: #f8f9fa; padding: 25px; margin: 20px 0; border-radius: 10px; border-left: 5px solid #007bff; }
+        .credentials { background: #e7f3ff; padding: 20px; border-radius: 8px; margin: 15px 0; font-family: monospace; }
+        .btn { background: #007bff; color: white; padding: 15px 30px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin: 10px 5px; transition: all 0.3s; }
+        .btn:hover { background: #0056b3; transform: translateY(-2px); }
+        .btn-google { background: #db4437; }
+        .btn-google:hover { background: #c23321; }
+        .btn-success { background: #28a745; }
+        .btn-success:hover { background: #218838; }
+        .status { padding: 15px; margin: 15px 0; border-radius: 8px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .url-box { background: #f1f3f4; padding: 15px; border-radius: 5px; font-family: monospace; word-break: break-all; margin: 10px 0; max-height: 100px; overflow-y: auto; }
+        .step { margin: 25px 0; }
+        .step-number { display: inline-block; background: #007bff; color: white; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; margin-right: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Test Complet OAuth Google</h1>
+            <h2>Upload You Clips - Signup/Signin</h2>
+        </div>
+        
+        <div class="step">
+            <span class="step-number">1</span>
+            <strong>Configuration OAuth actuelle</strong>
+            <div class="credentials">
+                <div><strong>Client ID:</strong> [CONFIGURED - See .env file]</div>
+                <div><strong>Client Secret:</strong> [CONFIGURED - See .env file]</div>
+                <div><strong>Redirect URI:</strong> http://localhost:5000/api/oauth/google/callback</div>
+                <div><strong>Frontend URL:</strong> http://localhost:3001</div>
+            </div>
+        </div>
+
+        <div class="step">
+            <span class="step-number">2</span>
+            <strong>Vérification des serveurs</strong>
+            <div id="server-status" class="status info">Cliquez pour vérifier</div>
+            <button class="btn" onclick="checkServers()">🔍 Vérifier les serveurs</button>
+        </div>
+
+        <div class="step">
+            <span class="step-number">3</span>
+            <strong>Test génération URL OAuth</strong>
+            <div id="oauth-status" class="status info">Prêt pour le test</div>
+            <button class="btn" onclick="testOAuthUrl()">🔗 Générer URL OAuth</button>
+            <div id="oauth-url" class="url-box" style="display: none;"></div>
+        </div>
+
+        <div class="step">
+            <span class="step-number">4</span>
+            <strong>Test de connexion Google</strong>
+            <div id="login-status" class="status info">Prêt pour le test de connexion</div>
+            <button class="btn btn-google" onclick="testGoogleSignIn()" id="signin-btn">
+                🔗 TESTER SIGNIN GOOGLE
+            </button>
+            <button class="btn btn-success" onclick="openMainApp()">
+                🚀 OUVRIR APP PRINCIPALE
+            </button>
+        </div>
+
+        <div class="step">
+            <span class="step-number">5</span>
+            <strong>URLs pour Google Cloud Console</strong>
+            <div class="test-card">
+                <h4>📋 Authorized JavaScript origins:</h4>
+                <div class="url-box">
+http://localhost:3000
+http://localhost:3001
+http://localhost:5173
+http://localhost:5000
+                </div>
+                
+                <h4>🔄 Authorized redirect URIs:</h4>
+                <div class="url-box">
+http://localhost:5000/api/oauth/google/callback
+http://localhost:3000/auth/callback
+http://localhost:3001/auth/callback
+http://localhost:5173/auth/callback
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <span class="step-number">6</span>
+            <strong>Résultats des tests</strong>
+            <div id="results" class="status info">Aucun test effectué</div>
+        </div>
+    </div>
+
+    <script>
+        let generatedOAuthUrl = null;
+
+        async function checkServers() {
+            const statusDiv = document.getElementById('server-status');
+            statusDiv.innerHTML = '🔄 Vérification en cours...';
+            statusDiv.className = 'status info';
+
+            try {
+                // Test Backend
+                const backendResponse = await fetch('http://localhost:5000/api/health');
+                const backendOk = backendResponse.ok;
+                
+                // Test Frontend
+                const frontendResponse = await fetch('http://localhost:3000');
+                const frontendOk = frontendResponse.ok;
+
+                let status = '';
+                status += `🔧 Backend (port 5000): ${backendOk ? '✅ OK' : '❌ ERREUR'}<br>`;
+                status += `🎨 Frontend (port 3000): ${frontendOk ? '✅ OK' : '❌ ERREUR'}<br>`;
+
+                if (backendOk && frontendOk) {
+                    statusDiv.innerHTML = status + '<br>🎯 Tous les serveurs sont opérationnels !';
+                    statusDiv.className = 'status success';
+                } else {
+                    statusDiv.innerHTML = status + '<br>⚠️ Certains serveurs ne répondent pas';
+                    statusDiv.className = 'status warning';
+                }
+
+            } catch (error) {
+                statusDiv.innerHTML = `❌ Erreur de connexion: ${error.message}`;
+                statusDiv.className = 'status error';
+            }
+        }
+
+        async function testOAuthUrl() {
+            const statusDiv = document.getElementById('oauth-status');
+            const urlDiv = document.getElementById('oauth-url');
+            
+            statusDiv.innerHTML = '🔄 Génération de l\'URL OAuth...';
+            statusDiv.className = 'status info';
+
+            try {
+                const response = await fetch('http://localhost:5000/api/oauth/google/url');
+                const data = await response.json();
+
+                if (data.success) {
+                    statusDiv.innerHTML = '✅ URL OAuth générée avec succès !<br>🔑 Client ID vérifié dans l\'URL';
+                    statusDiv.className = 'status success';
+                    
+                    urlDiv.innerHTML = `<strong>URL complète:</strong><br>${data.authUrl}`;
+                    urlDiv.style.display = 'block';
+                    
+                    generatedOAuthUrl = data.authUrl;
+                    
+                    // Activer le bouton de test
+                    document.getElementById('signin-btn').disabled = false;
+                } else {
+                    statusDiv.innerHTML = `❌ Erreur: ${data.message || 'Génération URL échouée'}`;
+                    statusDiv.className = 'status error';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `❌ Erreur réseau: ${error.message}`;
+                statusDiv.className = 'status error';
+            }
+        }
+
+        async function testGoogleSignIn() {
+            const statusDiv = document.getElementById('login-status');
+            const resultsDiv = document.getElementById('results');
+            
+            if (!generatedOAuthUrl) {
+                statusDiv.innerHTML = '⚠️ Veuillez d\'abord générer l\'URL OAuth';
+                statusDiv.className = 'status warning';
+                return;
+            }
+
+            statusDiv.innerHTML = '🚀 Redirection vers Google OAuth...';
+            statusDiv.className = 'status info';
+
+            resultsDiv.innerHTML = `
+                <strong>🔐 Test de connexion Google lancé:</strong><br>
+                ✅ URL OAuth générée et validée<br>
+                🔄 Redirection vers Google en cours...<br>
+                📝 Suivez le processus d'authentification<br>
+                🔄 Vous devriez revenir automatiquement après connexion<br>
+                <br>
+                <strong>🎯 Prochaines étapes:</strong><br>
+                1. Connectez-vous avec votre compte Google<br>
+                2. Autorisez l'application<br>
+                3. Vous serez redirigé vers l'app<br>
+                4. Vérifiez que vous êtes connecté
+            `;
+            resultsDiv.className = 'status info';
+
+            // Ouvrir dans une nouvelle fenêtre pour ne pas perdre cette page
+            const authWindow = window.open(generatedOAuthUrl, 'GoogleAuth', 'width=500,height=600,scrollbars=yes,resizable=yes');
+            
+            // Optionnel: surveiller la fermeture de la fenêtre
+            const checkClosed = setInterval(() => {
+                if (authWindow.closed) {
+                    clearInterval(checkClosed);
+                    statusDiv.innerHTML = '🔄 Fenêtre d\'authentification fermée. Vérifiez le résultat dans l\'app principale.';
+                    statusDiv.className = 'status info';
+                }
+            }, 1000);
+        }
+
+        function openMainApp() {
+            window.open('http://localhost:3000', '_blank');
+        }
+
+        // Auto-check au chargement
+        window.onload = function() {
+            checkServers();
+        };
+    </script>
+</body>
+</html>

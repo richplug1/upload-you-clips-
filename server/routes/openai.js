@@ -65,4 +65,47 @@ router.get('/status', (req, res) => {
   });
 });
 
+// Generate text with OpenAI
+router.post('/generate', authenticateToken, async (req, res) => {
+  try {
+    const { prompt, maxTokens = 150 } = req.body;
+    
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    const response = await openaiService.generateText(prompt, { max_tokens: maxTokens });
+    
+    res.json({ 
+      success: true,
+      response,
+      tokens_used: response.usage?.total_tokens || 0
+    });
+  } catch (error) {
+    console.error('Generate text error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      success: false
+    });
+  }
+});
+
+// Test endpoint without authentication
+router.get('/test', async (req, res) => {
+  try {
+    res.json({ 
+      success: true,
+      message: 'OpenAI endpoint is working',
+      timestamp: new Date().toISOString(),
+      openai_configured: !!process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your-openai-api-key-here'
+    });
+  } catch (error) {
+    console.error('OpenAI test error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      success: false
+    });
+  }
+});
+
 module.exports = router;

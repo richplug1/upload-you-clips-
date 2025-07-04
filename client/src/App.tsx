@@ -8,6 +8,7 @@ import LoadingOverlay from './components/LoadingOverlay';
 import ErrorBoundary from './components/ErrorBoundary';
 import ErrorReporter from './components/ErrorReporter';
 import ErrorTester from './components/ErrorTester';
+import ErrorNotificationSystem from './components/ErrorNotificationSystem';
 import Footer from './components/Footer';
 import KeyboardShortcuts from './components/KeyboardShortcuts';
 import DebugComponent from './components/DebugComponent';
@@ -16,9 +17,11 @@ import { LazyAdvancedMetrics } from './components/OptimizedComponents';
 import { Skeleton } from './components/OptimizedComponents';
 import { useToast } from './components/ToastNotification';
 import { useErrorHandler } from './utils/errorHandler';
+import { useGlobalErrorMonitoring } from './hooks/useErrorHandling';
 import { usePerformance } from './utils/performance';
 import { useAuth } from './contexts/AuthContext';
-import { videoService, Job, ClipOptions, VideoClip } from './services/video';
+import { videoService } from './services/video';
+import { Job, ClipOptions, VideoClip } from './types';
 import { Upload, Settings, Sparkles, Clock } from 'lucide-react';
 
 interface AppProps {
@@ -41,6 +44,9 @@ function App({ onBackToLanding, onLogout }: AppProps) {
   const { captureUploadError, captureProcessingError, captureUserError } = useErrorHandler();
   const { debounce, memoize } = usePerformance();
   const { user, isAuthenticated, logout } = useAuth();
+
+  // Initialiser le monitoring global des erreurs
+  useGlobalErrorMonitoring();
 
   // Load user's clips on mount and when authentication changes
   useEffect(() => {
@@ -78,12 +84,17 @@ function App({ onBackToLanding, onLogout }: AppProps) {
       if (activeClips.length > 0) {
         setHasGeneratedClips(true);
         // Set expiry time based on oldest clip
-        const oldestClip = activeClips.reduce((oldest, clip) => 
-          new Date(clip.created_at) < new Date(oldest.created_at) ? clip : oldest
-        );
-        const expiryTime = new Date(oldestClip.created_at);
-        expiryTime.setDate(expiryTime.getDate() + 30);
-        setClipsExpiryTime(expiryTime);
+        const oldestClip = activeClips.reduce((oldest, clip) => {
+          const clipDate = new Date(clip.created_at || clip.createdAt);
+          const oldestDate = new Date(oldest.created_at || oldest.createdAt);
+          return clipDate < oldestDate ? clip : oldest;
+        });
+        const clipCreatedAt = oldestClip.created_at || oldestClip.createdAt;
+        if (clipCreatedAt) {
+          const expiryTime = new Date(clipCreatedAt);
+          expiryTime.setDate(expiryTime.getDate() + 30);
+          setClipsExpiryTime(expiryTime);
+        }
       }
     } catch (err) {
       console.error('Failed to load user data:', err);
@@ -245,15 +256,23 @@ function App({ onBackToLanding, onLogout }: AppProps) {
   const generateDemoClips = () => {
     const demoClips: VideoClip[] = Array.from({ length: 12 }, (_, i) => ({
       id: `demo-${i}`,
+      jobId: 'demo-job',
       job_id: 'demo-job',
       user_id: 1,
+      title: `Demo Clip ${i + 1}`,
+      description: `Description for demo clip ${i + 1}`,
+      path: `/demo/clip-${i}.mp4`,
       filename: `Demo_Clip_${i + 1}.mp4`,
       duration: 30 + Math.random() * 60,
       size: 1024 * 1024 * (5 + Math.random() * 10), // 5-15MB
+      thumbnail: `demo-thumbnail-${i}.jpg`,
       thumbnail_url: `demo-thumbnail-${i}.jpg`,
+      startTime: 0,
       metadata: JSON.stringify({ aspectRatio: ['16:9', '9:16', '1:1'][i % 3] }),
       is_archived: false,
       created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
       downloadUrl: `/demo/clip-${i}.mp4`,
       aspectRatio: ['16:9', '9:16', '1:1'][i % 3] as '16:9' | '9:16' | '1:1',
       hasSubtitles: Math.random() > 0.5
@@ -399,10 +418,7 @@ function App({ onBackToLanding, onLogout }: AppProps) {
           {/* Advanced Metrics - Always visible when clips exist */}
           {clips.length > 0 && (
             <Suspense fallback={<Skeleton className="h-64 w-full" />}>
-              <LazyAdvancedMetrics
-                currentJob={currentJob}
-                clips={clips}
-              />
+              <LazyAdvancedMetrics />
             </Suspense>
           )}
         </div>
@@ -577,6 +593,9 @@ function App({ onBackToLanding, onLogout }: AppProps) {
       />
       <DebugComponent />
       <SimpleOAuthTest />
+      
+      {/* System de notification d'erreurs */}
+      <ErrorNotificationSystem />
     </div>
   );
 }

@@ -1,45 +1,7 @@
 import axios from 'axios';
 import { config } from '../config/env';
 import { authService } from './auth';
-
-export interface Job {
-  id: string;
-  user_id: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  input_file: string;
-  output_files?: string;
-  settings?: string;
-  progress: number;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
-  completed_at?: string;
-}
-
-export interface VideoClip {
-  id: string;
-  job_id: string;
-  user_id: number;
-  filename: string;
-  duration: number;
-  size: number;
-  thumbnail_url?: string;
-  metadata?: string;
-  is_archived: boolean;
-  created_at: string;
-  expires_at?: string;
-  downloadUrl?: string;
-  aspectRatio?: '16:9' | '9:16' | '1:1';
-  hasSubtitles?: boolean;
-}
-
-export interface ClipOptions {
-  clipDurations: number[];
-  aspectRatio: '16:9' | '9:16' | '1:1';
-  includeSubtitles: boolean;
-  maxClips: number;
-  platform: 'youtube' | 'tiktok' | 'instagram' | 'twitter' | 'custom';
-}
+import { Job, VideoClip, ClipOptions } from '../types';
 
 export interface VideoMetadata {
   duration: number;
@@ -175,7 +137,7 @@ class VideoService {
       return response.data.clips.map((clip: VideoClip) => ({
         ...clip,
         downloadUrl: `${this.baseUrl}/clips/${clip.filename}`,
-        thumbnail_url: clip.thumbnail_url ? `${this.baseUrl}/thumbnails/${clip.thumbnail_url}` : undefined,
+        thumbnail: clip.thumbnail ? `${this.baseUrl}/thumbnails/${clip.thumbnail}` : undefined,
       }));
     } catch (error) {
       if (axios.isAxiosError(error)) {
